@@ -3,9 +3,12 @@ package com.example
 import com.example.backup.ProjectArchiveCodec
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
+@RunWith(RobolectricTestRunner::class)
 class LegacySnapshotExportTest {
     @Test fun invalidRawPlanIsPreservedWithoutInterpretation() {
         val stream = ByteArrayOutputStream()
