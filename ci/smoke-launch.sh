@@ -75,14 +75,14 @@ PY
 wait_for_screen_text() {
   local phase="$1"
   local phrase="$2"
-  local dump="$OUT/\${phase}-ui.xml"
+  local dump="$OUT/${phase}-ui.xml"
   local attempt
   for attempt in $(seq 1 20); do
     adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
     adb exec-out cat /sdcard/window.xml > "$dump" 2>/dev/null || true
     if grep -Fq "$phrase" "$dump" &&
        adb shell dumpsys activity activities | grep -Eq "topResumedActivity=.*$PACKAGE"; then
-      adb exec-out screencap -p > "$OUT/\${phase}-ui.png" 2>/dev/null || true
+      adb exec-out screencap -p > "$OUT/${phase}-ui.png" 2>/dev/null || true
       echo "UI_READY: $phase; expected text: $phrase"
       return 0
     fi
