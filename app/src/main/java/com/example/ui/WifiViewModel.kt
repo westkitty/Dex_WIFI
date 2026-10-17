@@ -187,6 +187,23 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val _projectExportStatus = MutableStateFlow("Not exported")
+    val projectExportStatus: StateFlow<String> = _projectExportStatus.asStateFlow()
+
+    fun exportProject(uri: Uri) {
+        _projectExportStatus.value = "Writing backup..."
+        viewModelScope.launch {
+            when (val result = com.example.backup.ProjectExportCoordinator(getApplication(), surveyDao).export(uri)) {
+                is com.example.backup.ProjectExportResult.Verified ->
+                    _projectExportStatus.value = "Verified backup: ${result.surveyRows} survey rows and ${result.photoCount} photos."
+                is com.example.backup.ProjectExportResult.Unverified ->
+                    _projectExportStatus.value = "Unverified backup: ${result.explanation}"
+                is com.example.backup.ProjectExportResult.Failed ->
+                    _projectExportStatus.value = "Backup failed: ${result.explanation}"
+            }
+        }
+    }
+
     fun floorPlanPhotoFile(name: String?) = planStore.photoFile(name)
 
     /** Measurement cannot silently fall back to a demo signal or fabricated RSSI. */
