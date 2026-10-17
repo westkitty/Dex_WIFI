@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'build/apk-tablet-*'
+      - 'feat/phase-a-safe-ownership-*'
   pull_request:
   workflow_dispatch:
 
@@ -50,6 +51,8 @@ jobs:
           retention-days: 14
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
+      - name: Verify release identity gate
+        run: python3 -m unittest discover -s tools/release/tests -p 'test_identity_gate.py' -v
 
   emulator-smoke:
     name: Emulator install + launch (API ${{ matrix.api }})
