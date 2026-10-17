@@ -171,9 +171,8 @@ class WifiScannerService(
             val currentBssid = connectionInfo?.bssid
 
             if (results.isEmpty() && _networks.value.isEmpty()) {
-                // If real scan returned 0 results (common in emulator or restricted environment), provide notice / simulation fallback
-                _isSimulatedMode.value = true
-                updateSimulatedNetworks()
+                // Empty real results must never be silently replaced by invented networks.
+                _connectedNetwork.value = null
                 return
             }
 
@@ -185,7 +184,7 @@ class WifiScannerService(
                 WifiNetwork(
                     ssid = if (scan.SSID.isNullOrEmpty()) "<Hidden Network>" else scan.SSID,
                     bssid = scan.BSSID ?: "00:00:00:00:00:00",
-                    rssi = scan.level,
+                    rssi = if (isConn && connectionInfo?.rssi in -100..-1) connectionInfo.rssi else scan.level,
                     frequency = scan.frequency,
                     channelWidthMhz = channelWidth,
                     capabilities = scan.capabilities ?: "",
@@ -196,16 +195,19 @@ class WifiScannerService(
             }.sortedByDescending { it.rssi }
 
             _networks.value = mapped
-            _connectedNetwork.value = mapped.find { it.isConnected } ?: if (currentSsid.isNotEmpty() && currentSsid != "<unknown ssid>") {
+            _connectedNetwork.value = mapped.find { it.isConnected } ?: if (
+                currentSsid.isNotEmpty() && currentSsid != "<unknown ssid>" &&
+                connectionInfo != null && connectionInfo.rssi in -100..-1 && connectionInfo.frequency > 0
+            ) {
                 WifiNetwork(
                     ssid = currentSsid,
                     bssid = currentBssid ?: "02:00:00:00:00:00",
-                    rssi = connectionInfo?.rssi ?: -50,
-                    frequency = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) connectionInfo?.frequency ?: 5240 else 5240,
-                    channelWidthMhz = 80,
-                    capabilities = "[WPA2-PSK-CCMP][ESS]",
+                    rssi = connectionInfo.rssi,
+                    frequency = connectionInfo.frequency,
+                    channelWidthMhz = 20,
+                    capabilities = "",
                     isConnected = true,
-                    linkSpeedMbps = connectionInfo?.linkSpeed ?: 433,
+                    linkSpeedMbps = connectionInfo.linkSpeed,
                     ipAddress = formatIp(connectionInfo?.ipAddress)
                 )
             } else null

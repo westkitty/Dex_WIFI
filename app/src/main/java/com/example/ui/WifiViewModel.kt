@@ -1,6 +1,10 @@
 package com.example.ui
 
 import android.app.Application
+import android.net.Uri
+import com.example.data.FloorPlanStore
+import com.example.model.FloorPlanDocument
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -25,11 +29,17 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class WifiViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val planStore = FloorPlanStore(application)
+    private val savedCustomPlan = planStore.load()
+    private val _customPlan = MutableStateFlow<FloorPlanDocument?>(savedCustomPlan)
+    val customPlan: StateFlow<FloorPlanDocument?> = _customPlan.asStateFlow()
 
     private val database = AppDatabase.getInstance(application)
     private val surveyDao = database.surveyDao()
@@ -45,10 +55,10 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedBand = MutableStateFlow(WifiBand.BAND_2_4GHZ)
     val selectedBand: StateFlow<WifiBand> = _selectedBand.asStateFlow()
 
-    private val _currentLayout = MutableStateFlow(DefaultApartments.twoBedroomApartment)
+    private val _currentLayout = MutableStateFlow(savedCustomPlan?.toLayout() ?: DefaultApartments.twoBedroomApartment)
     val currentLayout: StateFlow<ApartmentLayout> = _currentLayout.asStateFlow()
 
-    private val _routerPosition = MutableStateFlow(DefaultApartments.twoBedroomApartment.defaultRouterPosition)
+    private val _routerPosition = MutableStateFlow(savedCustomPlan?.router ?: DefaultApartments.twoBedroomApartment.defaultRouterPosition)
     val routerPosition: StateFlow<NormalizedPoint> = _routerPosition.asStateFlow()
 
     // Real-time signal fluctuation history for the live RSSI waveform
@@ -97,7 +107,8 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Observe survey points for selected layout
         viewModelScope.launch {
-            _currentLayout.collect { layout ->
+            _currentLayout.collectLatest { layout ->
+                _dbSurveyPoints.value = emptyList()
                 surveyDao.getPointsForLayout(layout.id).collect { entities ->
                     _dbSurveyPoints.value = entities.map { it.toDomain() }
                 }
@@ -113,13 +124,7 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Preload sample survey points if database is empty on first launch
-        viewModelScope.launch {
-            delay(500)
-            if (_dbSurveyPoints.value.isEmpty()) {
-                loadSampleSurveyPoints()
-            }
-        }
+        // No silent fake survey data: demonstrations require explicit user action.
     }
 
     fun selectBand(band: WifiBand) {
@@ -132,7 +137,46 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setRouterPosition(point: NormalizedPoint) {
-        _routerPosition.value = point
+        val safePoint = com.example.model.PlanGeometry.clamp(point)
+        _routerPosition.value = safePoint
+        if (_currentLayout.value.id == FloorPlanDocument.LAYOUT_ID) {
+            _customPlan.value?.let { old ->
+                val next = old.copy(router = safePoint, updatedAt = System.currentTimeMillis())
+                if (planStore.save(next)) _customPlan.value = next
+            }
+        }
+    }
+
+    fun openCustomPlan() {
+        _customPlan.value?.let { selectLayout(it.toLayout()) }
+    }
+
+    fun saveCustomPlan(plan: FloorPlanDocument): Boolean {
+        val validated = plan.copy(
+            name = plan.name.trim().take(70).ifBlank { "My apartment" },
+            updatedAt = System.currentTimeMillis()
+        )
+        if (!planStore.save(validated)) return false
+        _customPlan.value = validated
+        selectLayout(validated.toLayout())
+        return true
+    }
+
+    fun importFloorPlanPhoto(uri: Uri, callback: (Pair<String, Float>?, String?) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { planStore.importPhoto(uri) } }
+            callback(result.getOrNull(), result.exceptionOrNull()?.message)
+        }
+    }
+
+    fun floorPlanPhotoFile(name: String?) = planStore.photoFile(name)
+
+    /** Measurement cannot silently fall back to a demo signal or fabricated RSSI. */
+    fun canRecordRealSurveyPoint(): Boolean {
+        val network = connectedNetwork.value
+        return !isSimulatedMode.value && hasLocationPermission.value &&
+            network?.isConnected == true && network.ssid.isNotBlank() &&
+            network.rssi in -100..-1 && network.frequency > 0
     }
 
     fun triggerScan() {
@@ -148,17 +192,18 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addSurveyPoint(position: NormalizedPoint, roomName: String, notes: String = "") {
+        if (!canRecordRealSurveyPoint()) return
+        val realNetwork = connectedNetwork.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val primaryNet = connectedNetwork.value ?: networks.value.firstOrNull()
-            val ssid = primaryNet?.ssid ?: "My Network"
-            val rssi = primaryNet?.rssi ?: -65
-            val freq = primaryNet?.frequency ?: 5240
-            val channel = primaryNet?.channel ?: 48
+            val ssid = realNetwork.ssid
+            val rssi = realNetwork.rssi
+            val freq = realNetwork.frequency
+            val channel = realNetwork.channel
 
             val entity = SurveyEntity(
                 layoutId = _currentLayout.value.id,
-                posX = position.x,
-                posY = position.y,
+                posX = position.x.coerceIn(0f, 1f),
+                posY = position.y.coerceIn(0f, 1f),
                 roomName = roomName,
                 primarySsid = ssid,
                 rssi = rssi,
@@ -184,6 +229,7 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadSampleSurveyPoints() {
+        if (_currentLayout.value.id == FloorPlanDocument.LAYOUT_ID) return
         viewModelScope.launch(Dispatchers.IO) {
             val samples = DefaultApartments.createSampleSurveyPoints(
                 _currentLayout.value.id,

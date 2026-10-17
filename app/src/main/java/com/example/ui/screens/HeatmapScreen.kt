@@ -56,11 +56,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.DefaultApartments
+import com.example.model.FloorPlanDocument
 import com.example.model.NormalizedPoint
 import com.example.model.RoomZone
 import com.example.service.HeatmapInterpolator
 import com.example.ui.WifiViewModel
 import com.example.ui.components.ApartmentHeatmapCanvas
+import com.example.ui.components.CustomFloorPlanCanvas
 import com.example.ui.components.SignalQualityBadge
 import com.example.ui.theme.CyberBackground
 import com.example.ui.theme.CyberOutline
@@ -85,6 +87,15 @@ fun HeatmapScreen(
     val routerPosition by viewModel.routerPosition.collectAsState()
     val heatmapGrid by viewModel.heatmapGrid.collectAsState()
     val connected by viewModel.connectedNetwork.collectAsState()
+    val simulated by viewModel.isSimulatedMode.collectAsState()
+    val locationGranted by viewModel.hasLocationPermission.collectAsState()
+    val customPlan by viewModel.customPlan.collectAsState()
+    var editingFloorPlan by remember { mutableStateOf(false) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+    if (editingFloorPlan) {
+        FloorPlanStudio(viewModel, onClose = { editingFloorPlan = false })
+        return
+    }
 
     var showHeatmapOverlay by remember { mutableStateOf(true) }
     var isRelocateRouterMode by remember { mutableStateOf(false) }
@@ -101,7 +112,7 @@ fun HeatmapScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Floor Plan Selector
+        // Floor Plan Selector: presets remain available, personal plan is persistent.
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
@@ -109,35 +120,45 @@ fun HeatmapScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "APARTMENT BLUEPRINT",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = "${currentLayout.widthMeters.toInt()}m × ${currentLayout.heightMeters.toInt()}m",
-                        color = NeonCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Text("APARTMENT BLUEPRINT", color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    Text("%.1f × %.1f m".format(currentLayout.widthMeters,
+                        currentLayout.heightMeters), color = NeonCyan, fontSize = 11.sp)
                 }
-
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(DefaultApartments.allLayouts) { layout ->
                         FilterChip(
                             selected = currentLayout.id == layout.id,
                             onClick = { viewModel.selectLayout(layout) },
                             label = { Text(layout.name, fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = NeonCyan,
-                                selectedLabelColor = Color.Black
-                            ),
                             modifier = Modifier.testTag("layout_chip_${layout.id}")
                         )
                     }
+                    if (customPlan != null) {
+                        item {
+                            FilterChip(
+                                selected = currentLayout.id == FloorPlanDocument.LAYOUT_ID,
+                                onClick = { viewModel.openCustomPlan() },
+                                label = { Text(customPlan!!.name, fontSize = 12.sp) },
+                                modifier = Modifier.testTag("custom_layout_chip")
+                            )
+                        }
+                    }
                 }
+                Button(
+                    onClick = { editingFloorPlan = true },
+                    modifier = Modifier.testTag("open_floor_plan_studio")
+                ) {
+                    Text(if (customPlan == null) "Draw / photograph my apartment"
+                        else "Edit my apartment map", fontSize = 12.sp)
+                }
+                Text(
+                    if (currentLayout.id == FloorPlanDocument.LAYOUT_ID)
+                        "My floor plan • private on this device • editable anytime"
+                    else "These are example layouts, not verified diagrams of your apartment.",
+                    color = if (currentLayout.id == FloorPlanDocument.LAYOUT_ID)
+                        NeonEmerald else NeonAmber, fontSize = 11.sp
+                )
             }
         }
 
@@ -180,24 +201,22 @@ fun HeatmapScreen(
                         )
                     }
 
-                    // Load Sample Points
-                    TextButton(
-                        onClick = { viewModel.loadSampleSurveyPoints() },
-                        modifier = Modifier.testTag("sample_survey_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.RestartAlt,
-                            contentDescription = null,
-                            tint = NeonAmber,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Sample Survey", fontSize = 11.sp, color = NeonAmber)
+                    // Demonstration points are intentionally unavailable on real custom plans.
+                    if (currentLayout.id != FloorPlanDocument.LAYOUT_ID) {
+                        TextButton(
+                            onClick = { viewModel.loadSampleSurveyPoints() },
+                            modifier = Modifier.testTag("sample_survey_btn")
+                        ) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = null,
+                                tint = NeonAmber, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("DEMO", fontSize = 11.sp, color = NeonAmber)
+                        }
                     }
 
                     // Clear Pins
                     IconButton(
-                        onClick = { viewModel.clearAllSurveyPoints() },
+                        onClick = { showClearConfirm = true },
                         modifier = Modifier.testTag("clear_pins_btn")
                     ) {
                         Icon(
@@ -210,28 +229,42 @@ fun HeatmapScreen(
             }
         }
 
-        // Main Heatmap Canvas
+        // Survey uses precisely the same normalized photo coordinates as the editor.
         item {
-            ApartmentHeatmapCanvas(
-                layout = currentLayout,
-                surveyPoints = surveyPoints,
-                routerPosition = routerPosition,
-                heatmapGrid = heatmapGrid,
-                showHeatmap = showHeatmapOverlay,
-                isRelocateRouterMode = isRelocateRouterMode,
-                onCanvasTap = { point, roomName ->
-                    if (isRelocateRouterMode) {
-                        viewModel.setRouterPosition(point)
-                        isRelocateRouterMode = false
-                    } else {
-                        pendingTapPoint = point to roomName
-                        customRoomNotes = ""
-                    }
-                },
-                onDeleteSurveyPoint = { id ->
-                    viewModel.deleteSurveyPoint(id)
+            val onTap: (NormalizedPoint, String) -> Unit = { point, roomName ->
+                if (isRelocateRouterMode) {
+                    viewModel.setRouterPosition(point)
+                    isRelocateRouterMode = false
+                } else {
+                    pendingTapPoint = point to roomName
+                    customRoomNotes = ""
                 }
-            )
+            }
+            val plan = customPlan
+            if (currentLayout.id == FloorPlanDocument.LAYOUT_ID && plan != null) {
+                CustomFloorPlanCanvas(
+                    document = plan,
+                    photoFile = viewModel.floorPlanPhotoFile(plan.photoFile),
+                    surveyPoints = surveyPoints,
+                    routerPosition = routerPosition,
+                    heatmapGrid = heatmapGrid,
+                    showHeatmap = showHeatmapOverlay,
+                    isRelocateRouterMode = isRelocateRouterMode,
+                    onCanvasTap = onTap,
+                    onDeleteSurveyPoint = { viewModel.deleteSurveyPoint(it) }
+                )
+            } else {
+                ApartmentHeatmapCanvas(
+                    layout = currentLayout,
+                    surveyPoints = surveyPoints,
+                    routerPosition = routerPosition,
+                    heatmapGrid = heatmapGrid,
+                    showHeatmap = showHeatmapOverlay,
+                    isRelocateRouterMode = isRelocateRouterMode,
+                    onCanvasTap = onTap,
+                    onDeleteSurveyPoint = { viewModel.deleteSurveyPoint(it) }
+                )
+            }
         }
 
         // Survey Quick Guide
@@ -261,7 +294,11 @@ fun HeatmapScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Walk to a room in your apartment, then tap that spot on the floor plan to record your live Wi-Fi signal (${connected?.rssi ?: -65} dBm).",
+                            text = if (!viewModel.canRecordRealSurveyPoint()) {
+                                 "SIMULATION or unavailable reading. No measurement can be saved until you grant Location, enable Android Location services, and switch to Hardware mode."
+                             } else {
+                                 "Stand in the room and tap your real location on the plan. Hardware snapshot: ${connected?.rssi} dBm (${connected?.ssid}). Android may throttle scanning."
+                             },
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -292,8 +329,9 @@ fun HeatmapScreen(
     // Tap to record survey point dialog
     if (pendingTapPoint != null) {
         val (point, roomName) = pendingTapPoint!!
-        val currentRssi = connected?.rssi ?: -65
-        val ssid = connected?.ssid ?: "Current Network"
+        val currentRssi = connected?.rssi
+        val ssid = connected?.ssid ?: "No active hardware Wi-Fi network"
+        val canRecord = !simulated && locationGranted && viewModel.canRecordRealSurveyPoint()
 
         AlertDialog(
             onDismissRequest = { pendingTapPoint = null },
@@ -313,7 +351,8 @@ fun HeatmapScreen(
                         color = NeonCyan
                     )
                     Text(
-                        text = "Recorded Signal: $currentRssi dBm ($ssid)",
+                        text = if (canRecord) "Hardware RSSI: $currentRssi dBm ($ssid)"
+                             else "No authentic Wi-Fi reading. Fake readings cannot be saved.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -328,6 +367,7 @@ fun HeatmapScreen(
             },
             confirmButton = {
                 Button(
+                    enabled = canRecord,
                     onClick = {
                         viewModel.addSurveyPoint(point, roomName, customRoomNotes)
                         pendingTapPoint = null
@@ -342,6 +382,22 @@ fun HeatmapScreen(
                 OutlinedButton(onClick = { pendingTapPoint = null }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Delete these survey readings?") },
+            text = { Text("Readings on the selected map will be permanently deleted. The map itself will remain.") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.clearAllSurveyPoints()
+                    showClearConfirm = false
+                }) { Text("Delete readings") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
             }
         )
     }
