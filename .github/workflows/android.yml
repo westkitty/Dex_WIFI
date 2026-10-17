@@ -52,10 +52,14 @@ jobs:
         run: gradle --no-daemon :app:testDebugUnitTest
 
   emulator-smoke:
-    name: Emulator install + launch
+    name: Emulator install + launch (API ${{ matrix.api }})
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [35, 36]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -70,7 +74,7 @@ jobs:
       - name: Install and render Wi-Fi UI on Android 16 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
+          api-level: ${{ matrix.api }}
           target: google_apis
           arch: x86_64
           profile: pixel_7
@@ -81,7 +85,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Dex_WIFI-emulator-smoke-evidence
+          name: Dex_WIFI-emulator-smoke-evidence-api-${{ matrix.api }}
           path: smoke-evidence/
           retention-days: 7
           if-no-files-found: warn

@@ -1,6 +1,9 @@
 package com.example
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.net.Uri
+import java.io.File
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.FloorPlanStore
 import com.example.model.FloorPlanDocument
@@ -51,5 +54,36 @@ class FloorPlanStoreTest {
         assertEquals(original.rooms, restored.rooms)
         assertEquals(original.router, restored.router)
         assertNull(store.photoFile("../../shared-secrets.jpg"))
+    }
+
+    @Test fun importedPictureIsPrivateCalibratableAndRestored() {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val store = FloorPlanStore(ctx)
+        val source = File(ctx.cacheDir, "dex_wifi_photo_fixture.png")
+        val bitmap = Bitmap.createBitmap(120, 80, Bitmap.Config.ARGB_8888)
+        try {
+            source.outputStream().use {
+                assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        } finally {
+            bitmap.recycle()
+        }
+
+        var imported: File? = null
+        try {
+            val (name, aspect) = store.importPhoto(Uri.fromFile(source))
+            imported = store.photoFile(name)
+            assertNotNull("Imported photo must be copied into private storage", imported)
+            assertTrue(imported!!.canonicalPath.startsWith(ctx.filesDir.canonicalPath + File.separator))
+            assertEquals(1.5f, aspect, .03f)
+            assertTrue(store.save(FloorPlanDocument(photoFile = name, imageAspect = aspect)))
+            val restored = store.load()
+            assertEquals(name, restored?.photoFile)
+            assertEquals(aspect, restored!!.imageAspect, .0001f)
+            assertNull(store.photoFile("../" + name))
+        } finally {
+            imported?.delete()
+            source.delete()
+        }
     }
 }

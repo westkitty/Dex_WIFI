@@ -14,6 +14,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import com.example.model.WifiBand
 import com.example.model.WifiNetwork
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,7 +28,8 @@ import kotlin.random.Random
 
 class WifiScannerService(
     private val context: Context,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val scanDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val connectivityManager = context.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -47,7 +49,10 @@ class WifiScannerService(
     private val _hasLocationPermission = MutableStateFlow(false)
     val hasLocationPermission: StateFlow<Boolean> = _hasLocationPermission.asStateFlow()
 
+    private val publicationLock = Any()
+    @Volatile private var disposed = false
     private var pollingJob: Job? = null
+    private var pendingSimulationJob: Job? = null
     private var scanReceiverRegistered = false
 
     // Initialized BEFORE init starts its Dispatchers.Default polling coroutine.
@@ -74,13 +79,23 @@ class WifiScannerService(
     }
 
     fun setSimulatedMode(enabled: Boolean) {
-        // A hardware transition must not expose stale demo readings as real ones.
-        if (!enabled) {
+        synchronized(publicationLock) {
+            if (disposed) return
+            pendingSimulationJob?.cancel()
+            // Always clear readings when changing source. Never carry DEMO into LIVE.
             _networks.value = emptyList()
             _connectedNetwork.value = null
+            _isSimulatedMode.value = enabled
         }
-        _isSimulatedMode.value = enabled
         triggerScan()
+    }
+
+    /** An atomic real-radio snapshot; simulated connected data can never be recorded. */
+    fun realConnectedSnapshotOrNull(): WifiNetwork? = synchronized(publicationLock) {
+        if (disposed || _isSimulatedMode.value || !_hasLocationPermission.value) null
+        else _connectedNetwork.value?.takeIf {
+            it.isConnected && it.ssid.isNotBlank() && it.rssi in -100..-1 && it.frequency > 0
+        }
     }
 
     fun hasHardwareWifi(): Boolean {
@@ -100,43 +115,61 @@ class WifiScannerService(
     }
 
     fun registerReceiver() {
-        if (!scanReceiverRegistered && wifiManager != null) {
+        synchronized(publicationLock) {
+            if (disposed || scanReceiverRegistered || wifiManager == null) return
             try {
                 val filter = IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
                 context.registerReceiver(scanReceiver, filter)
                 scanReceiverRegistered = true
-            } catch (e: Exception) {
-                // Ignore register error
+            } catch (_: Exception) {
+                // Registration may fail during permission/lifecycle transitions.
             }
         }
     }
 
     fun unregisterReceiver() {
-        if (scanReceiverRegistered) {
-            try {
-                context.unregisterReceiver(scanReceiver)
-            } catch (e: Exception) {
-                // Ignore unregister error
+        synchronized(publicationLock) {
+            if (scanReceiverRegistered) {
+                try {
+                    context.unregisterReceiver(scanReceiver)
+                } catch (_: Exception) {
+                    // Receiver may already be gone.
+                }
+                scanReceiverRegistered = false
             }
-            scanReceiverRegistered = false
         }
     }
 
     fun triggerScan() {
-        _isScanning.value = true
+        synchronized(publicationLock) {
+            if (disposed) return
+            _isScanning.value = true
+        }
         checkPermissions()
 
         if (_isSimulatedMode.value) {
-            scope.launch(Dispatchers.Default) {
-                delay(300)
-                updateSimulatedNetworks()
-                _isScanning.value = false
+            synchronized(publicationLock) {
+                if (disposed) return
+                pendingSimulationJob?.cancel()
+                pendingSimulationJob = scope.launch(scanDispatcher) {
+                    try {
+                        delay(300)
+                        updateSimulatedNetworks()
+                    } finally {
+                        if (!disposed) _isScanning.value = false
+                    }
+                }
             }
             return
         }
 
         if (wifiManager == null || !_hasLocationPermission.value) {
-            _isSimulatedMode.value = true
+            synchronized(publicationLock) {
+                if (disposed) return
+                _networks.value = emptyList()
+                _connectedNetwork.value = null
+                _isSimulatedMode.value = true
+            }
             updateSimulatedNetworks()
             _isScanning.value = false
             return
@@ -159,8 +192,8 @@ class WifiScannerService(
 
     private fun startScanLoop() {
         pollingJob?.cancel()
-        pollingJob = scope.launch(Dispatchers.Default) {
-            while (isActive) {
+        pollingJob = scope.launch(scanDispatcher) {
+            while (isActive && !disposed) {
                 if (_isSimulatedMode.value) {
                     updateSimulatedNetworks()
                 } else {
@@ -172,7 +205,7 @@ class WifiScannerService(
     }
 
     private fun refreshRealScanResults() {
-        if (wifiManager == null) return
+        if (disposed || _isSimulatedMode.value || wifiManager == null) return
 
         try {
             val results: List<ScanResult> = wifiManager.scanResults ?: emptyList()
@@ -201,8 +234,7 @@ class WifiScannerService(
                 )
             }.sortedByDescending { it.rssi }
 
-            _networks.value = mapped
-            _connectedNetwork.value = mapped.find { it.isConnected } ?: if (
+            val connected = mapped.find { it.isConnected } ?: if (
                 currentSsid.isNotEmpty() && currentSsid != "<unknown ssid>" &&
                 connectionInfo != null && connectionInfo.rssi in -100..-1 && connectionInfo.frequency > 0
             ) {
@@ -219,9 +251,20 @@ class WifiScannerService(
                 )
             } else null
 
+            // Reject stale results delivered after a mode switch or teardown.
+            synchronized(publicationLock) {
+                if (disposed || _isSimulatedMode.value) return
+                _networks.value = mapped
+                _connectedNetwork.value = connected
+            }
         } catch (e: SecurityException) {
-            _hasLocationPermission.value = false
-            _isSimulatedMode.value = true
+            synchronized(publicationLock) {
+                if (disposed) return
+                _hasLocationPermission.value = false
+                _networks.value = emptyList()
+                _connectedNetwork.value = null
+                _isSimulatedMode.value = true
+            }
             updateSimulatedNetworks()
         } catch (e: Exception) {
             // Error fetching scan results
@@ -261,6 +304,7 @@ class WifiScannerService(
 
     // Apartment simulated Wi-Fi environment
     private fun updateSimulatedNetworks() {
+        if (disposed || !_isSimulatedMode.value) return
         // Apply realistic small RF fluctuations (+/- 1-2 dBm)
         val updated = baseSimulatedNetworks.map { net ->
             val jitter = Random.nextInt(-2, 3)
@@ -271,8 +315,11 @@ class WifiScannerService(
             )
         }.sortedByDescending { it.rssi }
 
-        _networks.value = updated
-        _connectedNetwork.value = updated.find { it.isConnected }
+        synchronized(publicationLock) {
+            if (disposed || !_isSimulatedMode.value) return
+            _networks.value = updated
+            _connectedNetwork.value = updated.find { it.isConnected }
+        }
     }
 
     private fun createApartmentBuildingNeighbors(): List<WifiNetwork> {
@@ -374,7 +421,12 @@ class WifiScannerService(
     }
 
     fun cleanup() {
-        pollingJob?.cancel()
+        synchronized(publicationLock) {
+            disposed = true
+            _isScanning.value = false
+            pollingJob?.cancel()
+            pendingSimulationJob?.cancel()
+        }
         unregisterReceiver()
     }
 }

@@ -172,12 +172,8 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     fun floorPlanPhotoFile(name: String?) = planStore.photoFile(name)
 
     /** Measurement cannot silently fall back to a demo signal or fabricated RSSI. */
-    fun canRecordRealSurveyPoint(): Boolean {
-        val network = connectedNetwork.value
-        return !isSimulatedMode.value && hasLocationPermission.value &&
-            network?.isConnected == true && network.ssid.isNotBlank() &&
-            network.rssi in -100..-1 && network.frequency > 0
-    }
+    fun canRecordRealSurveyPoint(): Boolean =
+        scannerService.realConnectedSnapshotOrNull() != null
 
     fun triggerScan() {
         scannerService.triggerScan()
@@ -192,8 +188,9 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addSurveyPoint(position: NormalizedPoint, roomName: String, notes: String = "") {
-        if (!canRecordRealSurveyPoint()) return
-        val realNetwork = connectedNetwork.value ?: return
+        // Capture actual radio + target layout before asynchronous persistence.
+        val realNetwork = scannerService.realConnectedSnapshotOrNull() ?: return
+        val layoutId = _currentLayout.value.id
         viewModelScope.launch(Dispatchers.IO) {
             val ssid = realNetwork.ssid
             val rssi = realNetwork.rssi
@@ -201,7 +198,7 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
             val channel = realNetwork.channel
 
             val entity = SurveyEntity(
-                layoutId = _currentLayout.value.id,
+                layoutId = layoutId,
                 posX = position.x.coerceIn(0f, 1f),
                 posY = position.y.coerceIn(0f, 1f),
                 roomName = roomName,
@@ -229,10 +226,12 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadSampleSurveyPoints() {
-        if (_currentLayout.value.id == FloorPlanDocument.LAYOUT_ID) return
+        // A fast switch to a real floor plan cannot retarget a queued DEMO write.
+        val demoLayoutId = _currentLayout.value.id
+        if (demoLayoutId == FloorPlanDocument.LAYOUT_ID) return
         viewModelScope.launch(Dispatchers.IO) {
             val samples = DefaultApartments.createSampleSurveyPoints(
-                _currentLayout.value.id,
+                demoLayoutId,
                 connectedNetwork.value?.ssid ?: "Apt304_Home_5G"
             )
             samples.forEach { pt ->
