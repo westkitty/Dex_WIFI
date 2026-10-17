@@ -111,6 +111,8 @@ fun FloorPlanStudio(
     var roomName by remember { mutableStateOf("") }
     var selectedRoomType by remember { mutableStateOf(RoomType.LIVING_ROOM) }
     var distanceText by remember { mutableStateOf("") }
+    var measuredWidth by remember { mutableStateOf("%.2f".format(draft.widthMeters)) }
+    var measuredHeight by remember { mutableStateOf("%.2f".format(draft.heightMeters)) }
     var unitsFeet by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     var awaitingPhoto by remember { mutableStateOf<Uri?>(null) }
@@ -262,7 +264,7 @@ fun FloorPlanStudio(
                 modifier = Modifier.testTag("save_custom_floorplan")
             ) { Text("Save plan") }
         }
-        Text("Sketch the real apartment, or start with a picture. Nothing is uploaded.",
+        Text("Sketch or photograph your apartment. The app keeps imported pictures locally; Android system backups depend on your device settings.",
             fontSize = 12.sp, color = Color.LightGray)
         OutlinedTextField(
             value = draft.name,
@@ -456,6 +458,33 @@ fun FloorPlanStudio(
             Slider(value = photoOpacity, onValueChange = { photoOpacity = it },
                 valueRange = .15f..1f)
         }
+        Text("Measured apartment dimensions", color = NeonCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = measuredWidth,
+                onValueChange = { measuredWidth = it.take(12) },
+                label = { Text("Width (m)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f).testTag("floorplan_width_m")
+            )
+            OutlinedTextField(
+                value = measuredHeight,
+                onValueChange = { measuredHeight = it.take(12) },
+                label = { Text("Height (m)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.weight(1f).testTag("floorplan_height_m")
+            )
+            Button(onClick = {
+                val w = measuredWidth.toFloatOrNull()
+                val h = measuredHeight.toFloatOrNull()
+                if (w != null && h != null && w.isFinite() && h.isFinite() &&
+                    w in .5f..500f && h in .5f..500f) {
+                    update(draft.copy(widthMeters = w, heightMeters = h, scaleVerified = true))
+                } else errorText = "Enter valid positive measured dimensions in meters."
+            }, modifier = Modifier.testTag("set_measured_dimensions")) { Text("Apply") }
+        }
+        Text("Measure the widest horizontal and vertical extent of the actual apartment. Use Scale for a known segment of a traced photo.",
+            fontSize = 11.sp, color = Color.LightGray)
         Text(
             "Size: %.2f × %.2f m • %s".format(
                 draft.widthMeters, draft.heightMeters,
@@ -559,6 +588,8 @@ fun FloorPlanStudio(
                         selected.second, meters)
                     if (calibrated != null) {
                         update(calibrated)
+                        measuredWidth = "%.2f".format(calibrated.widthMeters)
+                        measuredHeight = "%.2f".format(calibrated.heightMeters)
                         scaleCorners = null
                     } else errorText = "Invalid reference length or points too close together"
                 }) { Text("Set accurate scale") }
