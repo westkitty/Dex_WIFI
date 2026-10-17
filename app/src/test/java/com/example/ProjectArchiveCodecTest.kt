@@ -30,7 +30,12 @@ class ProjectArchiveCodecTest {
         val output = ByteArrayOutputStream()
         ProjectArchiveCodec.write(output, "{}", "[]", emptyList())
         val bytes = output.toByteArray()
-        bytes[bytes.size - 25] = (bytes[bytes.size - 25].toInt() xor 1).toByte()
+        val payload = "[]".toByteArray()
+        val offset = bytes.indices.firstOrNull { i ->
+            i + payload.size <= bytes.size &&
+                bytes[i] == payload[0] && bytes[i + 1] == payload[1]
+        } ?: error("Could not locate ZIP survey payload")
+        bytes[offset + 1] = '}'.code.toByte()
         assertThrows(Exception::class.java) {
             ProjectArchiveCodec.verify(ByteArrayInputStream(bytes))
         }
