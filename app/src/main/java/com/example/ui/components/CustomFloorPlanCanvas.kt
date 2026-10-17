@@ -86,7 +86,7 @@ fun CustomFloorPlanCanvas(
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            val canvasWidth = minOf(maxWidth, aspect * 530.dp)
+            val canvasWidth = minOf(maxWidth, 530.dp * aspect)
             val canvasHeight = canvasWidth / aspect
             Surface(
                 color = CyberBackground,

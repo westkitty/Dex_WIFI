@@ -69,6 +69,11 @@ class WifiScannerService(
     }
 
     fun setSimulatedMode(enabled: Boolean) {
+        // A hardware transition must not expose stale demo readings as real ones.
+        if (!enabled) {
+            _networks.value = emptyList()
+            _connectedNetwork.value = null
+        }
         _isSimulatedMode.value = enabled
         triggerScan()
     }
