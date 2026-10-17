@@ -113,6 +113,16 @@ wait_for_screen_text "floor-plan-studio" "FLOOR PLAN STUDIO"
 tap_accessible_label "Cancel" "$OUT/floor-plan-studio-ui.xml"
 wait_for_screen_text "return-to-heatmap" "APARTMENT BLUEPRINT"
 
+# Exercise the two newly introduced workspaces through visible Compose labels.
+tap_accessible_label "Audit" "$OUT/return-to-heatmap-ui.xml"
+wait_for_screen_text "audit-screen" "RADIO AUDIT LAB"
+tap_accessible_label "Survey Coach" "$OUT/audit-screen-ui.xml"
+wait_for_screen_text "survey-coach" "SURVEY COACH"
+tap_accessible_label "Connection Doctor" "$OUT/survey-coach-ui.xml"
+wait_for_screen_text "connection-doctor" "CONNECTION DOCTOR"
+tap_accessible_label "Radio inventory" "$OUT/connection-doctor-ui.xml"
+wait_for_screen_text "audit-return" "RADIO AUDIT LAB"
+
 # Verify the launcher can recover after normal force-stop.
 adb shell am force-stop "$PACKAGE"
 adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 | tee "$OUT/launcher-result.txt"

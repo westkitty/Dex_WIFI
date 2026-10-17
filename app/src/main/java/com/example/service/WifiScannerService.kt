@@ -11,6 +11,7 @@ import android.net.wifi.ScanResult
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.example.model.WifiBand
 import com.example.model.WifiNetwork
@@ -232,6 +233,8 @@ class WifiScannerService(
 
         try {
             val results: List<ScanResult> = wifiManager.scanResults ?: emptyList()
+            val nowWallClock = System.currentTimeMillis()
+            val nowSinceBoot = SystemClock.elapsedRealtime()
             val connectionInfo = wifiManager.connectionInfo
             val currentSsid = sanitizeSsid(connectionInfo?.ssid)
             val currentBssid = connectionInfo?.bssid
@@ -253,7 +256,10 @@ class WifiScannerService(
                     capabilities = scan.capabilities ?: "",
                     isConnected = isConn,
                     linkSpeedMbps = if (isConn) connectionInfo?.linkSpeed else null,
-                    ipAddress = if (isConn) formatIp(connectionInfo?.ipAddress) else null
+                    ipAddress = if (isConn) formatIp(connectionInfo?.ipAddress) else null,
+                    timestamp = ScanFreshness.wallClockMillis(
+                        nowWallClock, nowSinceBoot, scan.timestamp
+                    ) ?: 0L
                 )
             }.sortedByDescending { it.rssi }
 
@@ -270,7 +276,9 @@ class WifiScannerService(
                     capabilities = "",
                     isConnected = true,
                     linkSpeedMbps = connectionInfo.linkSpeed,
-                    ipAddress = formatIp(connectionInfo?.ipAddress)
+                    ipAddress = formatIp(connectionInfo?.ipAddress),
+                    // WifiInfo does not expose when the RSSI was measured.
+                    timestamp = 0L
                 )
             } else null
 

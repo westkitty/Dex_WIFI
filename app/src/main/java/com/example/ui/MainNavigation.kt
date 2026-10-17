@@ -248,7 +248,7 @@ fun MainAppScreen(
                 NavTab.HEATMAP -> HeatmapScreen(viewModel = viewModel)
                 NavTab.CHANNELS -> ChannelGraphScreen(viewModel = viewModel)
                 NavTab.OPTIMIZER -> OptimizerScreen(viewModel = viewModel)
-                NavTab.AUDIT -> RadioOperationsScreen(viewModel = viewModel)
+                NavTab.AUDIT -> RadioOperationsScreen(viewModel = viewModel, onOpenHeatmap = { currentTab = NavTab.HEATMAP })
             }
         }
     }

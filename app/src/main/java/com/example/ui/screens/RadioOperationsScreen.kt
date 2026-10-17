@@ -5,11 +5,13 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -23,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,7 +41,33 @@ import com.example.ui.WifiViewModel
  * Router modifications are performed only by the user in the external admin UI.
  */
 @Composable
-fun RadioOperationsScreen(viewModel: WifiViewModel, modifier: Modifier = Modifier) {
+fun RadioOperationsScreen(
+    viewModel: WifiViewModel,
+    onOpenHeatmap: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var page by rememberSaveable { mutableStateOf("audit") }
+    Column(modifier.fillMaxSize()) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+            items(listOf("audit" to "Radio inventory",
+                "coach" to "Survey Coach", "doctor" to "Connection Doctor")) { (key, label) ->
+                FilterChip(selected = page == key, onClick = { page = key },
+                    label = { Text(label) }, modifier = Modifier.testTag("audit_mode_" + key))
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            when (page) {
+                "coach" -> SurveyCoachScreen(viewModel, onOpenHeatmap)
+                "doctor" -> ConnectionDoctorScreen(viewModel)
+                else -> RadioAuditDetail(viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RadioAuditDetail(viewModel: WifiViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val networks by viewModel.networks.collectAsState()
     val connected by viewModel.connectedNetwork.collectAsState()
@@ -185,13 +214,15 @@ fun RadioOperationsScreen(viewModel: WifiViewModel, modifier: Modifier = Modifie
                 }) { Text("Log in and apply in router admin") }
                 if (adminOpened) {
                     Text("Step 2: authenticate in the router's own interface; inspect supported band/channel settings, save manually, then reconnect. Some ISP gateways lock channels to Auto.")
+                    Text("After reconnecting, press Refresh Android scan above, allow a new result to arrive, then evaluate below.")
                 }
                 Button(enabled = baseline != null && !demo && connected != null && target != null, onClick = {
-                    viewModel.triggerScan()
+                    // A fresh scan is requested separately. Never compare the pre-refresh
+                    // state as if a synchronous refresh had already completed.
                     val n = connected
                     verifiedState = RouterAdminPolicy.verify(baseline, target, n?.ssid,
                         n?.band?.displayName, n?.channel, n?.timestamp ?: 0L, demo).name
-                }) { Text("Check observed channel after reconnect") }
+                }) { Text("Evaluate latest refreshed channel") }
                 verifiedState?.let { Text("Observation verdict: $it. This does not prove administrative change without router readback.") }
                 baseline?.let { b ->
                     Text("Rollback: return to the router admin page, restore channel ${b.channel} on ${b.band}, save and verify reconnection. Do not reset the router.")
