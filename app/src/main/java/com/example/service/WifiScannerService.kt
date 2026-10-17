@@ -50,6 +50,11 @@ class WifiScannerService(
     private var pollingJob: Job? = null
     private var scanReceiverRegistered = false
 
+    // Initialized BEFORE init starts its Dispatchers.Default polling coroutine.
+    // Kotlin initializes class fields in declaration order. Keeping this below
+    // init caused a background startup NPE from a not-yet-initialized collection.
+    private val baseSimulatedNetworks: List<WifiNetwork> = createApartmentBuildingNeighbors()
+
     private val scanReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
             if (intent?.action == WifiManager.SCAN_RESULTS_AVAILABLE_ACTION) {
@@ -255,8 +260,6 @@ class WifiScannerService(
     }
 
     // Apartment simulated Wi-Fi environment
-    private var baseSimulatedNetworks: List<WifiNetwork> = createApartmentBuildingNeighbors()
-
     private fun updateSimulatedNetworks() {
         // Apply realistic small RF fluctuations (+/- 1-2 dBm)
         val updated = baseSimulatedNetworks.map { net ->
