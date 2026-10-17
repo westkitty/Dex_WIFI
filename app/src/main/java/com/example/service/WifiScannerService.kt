@@ -175,11 +175,8 @@ class WifiScannerService(
             val currentSsid = sanitizeSsid(connectionInfo?.ssid)
             val currentBssid = connectionInfo?.bssid
 
-            if (results.isEmpty() && _networks.value.isEmpty()) {
-                // Empty real results must never be silently replaced by invented networks.
-                _connectedNetwork.value = null
-                return
-            }
+            // An empty scan does not imply a missing real connection.
+            // Continue to WiFiInfo below; never substitute simulated neighbors.
 
             val mapped = results.map { scan ->
                 val isConn = (currentBssid != null && scan.BSSID.equals(currentBssid, ignoreCase = true)) ||

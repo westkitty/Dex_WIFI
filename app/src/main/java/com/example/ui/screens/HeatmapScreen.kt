@@ -321,7 +321,12 @@ fun HeatmapScreen(
         items(currentLayout.rooms) { room ->
             RoomCoverageCard(
                 room = room,
-                surveyPoints = surveyPoints.filter { it.roomName == room.name }
+                surveyPoints = surveyPoints.filter { point ->
+                    if (currentLayout.id == FloorPlanDocument.LAYOUT_ID) {
+                        point.position.x in room.leftNorm..(room.leftNorm + room.widthNorm) &&
+                            point.position.y in room.topNorm..(room.topNorm + room.heightNorm)
+                    } else point.roomName == room.name
+                }
             )
         }
     }
