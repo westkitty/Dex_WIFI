@@ -94,3 +94,13 @@ Prioritize for subsequent bounded, testable iterations:
 - This pass targets lifecycle-activated scanning/ticker, background decoding with bounded bitmap resolution, one-copy stroke batching with live preview, and off-main heatmap computation with custom-router deduplication. These effects are inferred from code until the new CI and real-device checks pass.
 - Added scanner pause/resume and sketch equivalence/photo policy regression coverage plus a bounded same-JVM list-copy microbenchmark. Microbenchmark is NOT a stylus frame-time measurement.
 - Commit/push/CI outcome and Android physical acceptance are separate; do not promote source edits into proven battery/FPS gains without matched profiling.
+
+## 2026-10-17 — Comparative radio audit and router-admin handoff
+
+- Feature implementation commit: `c8b957a2b2290580d9e6d8af71162a2ed6e5531c`, based on performance candidate `569ea29ae8c112a5f74082872a389df8315a1837`.
+- New Audit tab groups 30 controls/indicators and actionable operator workflows (search, filters, sorting, network security, observation freshness, channel occupancy, survey diagnostics, exports and router guidance).
+- Security model: local IPv4 gateway must be private; reject external URLs, path/query/user-info and credentials. Router login and setting changes belong to explicit external browser user action, not app network calls. No admin credential capture/storage, authenticated routers' APIs are not assumed available.
+- Safe-apply contract: choose a legal/router-supported proposed channel, snapshot observed connected SSID/band/channel, authenticate externally, apply only in the router interface, reconnect, rescan, and compare. Observed target channel does not prove router readback; no claim of automated application.
+- New pure tests: `RadioOperationsTest` (inventory, filters, analytics, CSV formula injection, private-address gating, pre/post verdicts).
+- Latest Samsung Tab S9 Ultra had ~508 MB free / data partition full; ADB install refused due to storage. No permission to delete files or installed apps was granted. PR #2 remains **OPEN** until physical acceptance.
+- CI result for this candidate must be read from GitHub before treating it as a tested APK. Any late compilation failure requires correction, not a success claim.
