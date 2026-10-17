@@ -25,6 +25,11 @@ import kotlin.math.max
 class FloorPlanStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("floorplan_studio_v1", Context.MODE_PRIVATE)
 
+    /** Exact stored document for archival, including malformed or future-version JSON.
+     * Never parse, normalize or rewrite the source during a read-only snapshot.
+     */
+    fun rawDocumentForBackup(): String? = prefs.getString("document", null)
+
     fun load(): FloorPlanDocument? {
         return try {
             val value = prefs.getString("document", null) ?: return null
