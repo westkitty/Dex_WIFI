@@ -67,10 +67,10 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Install and launch actual APK in Android 35 emulator
+      - name: Install and render Wi-Fi UI on Android 16 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 36
           target: google_apis
           arch: x86_64
           profile: pixel_7
