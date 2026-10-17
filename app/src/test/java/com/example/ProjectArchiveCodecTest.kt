@@ -29,15 +29,23 @@ class ProjectArchiveCodecTest {
     @Test fun tamperedArchiveRejected() {
         val output = ByteArrayOutputStream()
         ProjectArchiveCodec.write(output, "{}", "[]", emptyList())
-        val bytes = output.toByteArray()
-        val payload = "[]".toByteArray()
-        val offset = bytes.indices.firstOrNull { i ->
-            i + payload.size <= bytes.size &&
-                bytes[i] == payload[0] && bytes[i + 1] == payload[1]
-        } ?: error("Could not locate ZIP survey payload")
-        bytes[offset + 1] = '}'.code.toByte()
+        // Repack a structurally valid ZIP with altered survey content but the
+        // ORIGINAL manifest. The integrity check must reject the changed hash.
+        val modified = ByteArrayOutputStream()
+        java.util.zip.ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { source ->
+            ZipOutputStream(modified).use { target ->
+                while (true) {
+                    val entry = source.nextEntry ?: break
+                    val bytes = source.readBytes()
+                    target.putNextEntry(ZipEntry(entry.name))
+                    target.write(if (entry.name == "surveys.json") "[{}]".toByteArray() else bytes)
+                    target.closeEntry()
+                    source.closeEntry()
+                }
+            }
+        }
         assertThrows(Exception::class.java) {
-            ProjectArchiveCodec.verify(ByteArrayInputStream(bytes))
+            ProjectArchiveCodec.verify(ByteArrayInputStream(modified.toByteArray()))
         }
     }
 
