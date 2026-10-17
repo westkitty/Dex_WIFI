@@ -1,0 +1,6 @@
+{
+  "name": "WiFi Heatmap & Analyzer",
+  "description": "Analyze Wi-Fi signals, generate apartment heatmaps, detect interference, and optimize channel settings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
