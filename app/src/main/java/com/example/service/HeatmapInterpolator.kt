@@ -4,6 +4,8 @@ import androidx.compose.ui.graphics.Color
 import com.example.model.ApartmentLayout
 import com.example.model.HeatmapCell
 import com.example.model.NormalizedPoint
+import com.example.model.FloorPlanDocument
+import com.example.model.PlanGeometry
 import com.example.model.SurveyPoint
 import com.example.ui.theme.SignalCritical
 import com.example.ui.theme.SignalExcellent
@@ -26,6 +28,14 @@ object HeatmapInterpolator {
         gridCols: Int = 36,
         gridRows: Int = 28
     ): List<HeatmapCell> {
+        val isMeasuredPlan = layout.id == FloorPlanDocument.LAYOUT_ID
+        val trustworthyPoints = if (isMeasuredPlan) {
+            val valid = surveyPoints.filter { it.rssi in -100..-1 && it.frequency > 0 }
+            val newestSsid = valid.maxByOrNull { it.timestamp }?.primarySsid
+            valid.filter { it.primarySsid == newestSsid }
+        } else surveyPoints
+        // At least three real points are necessary before interpolating a custom plan.
+        if (isMeasuredPlan && (!layout.referenceCalibrated || trustworthyPoints.size < 3)) return emptyList()
         val cells = ArrayList<HeatmapCell>(gridCols * gridRows)
 
         for (row in 0 until gridRows) {
@@ -33,8 +43,16 @@ object HeatmapInterpolator {
             for (col in 0 until gridCols) {
                 val xNorm = (col + 0.5f) / gridCols
 
-                val estimatedRssi = if (surveyPoints.isNotEmpty()) {
-                    interpolateFromSurvey(xNorm, yNorm, surveyPoints, routerPosition)
+                if (isMeasuredPlan) {
+                    if (!PlanGeometry.pointInOutline(NormalizedPoint(xNorm, yNorm), layout.outline)) continue
+                    val nearestMeters = trustworthyPoints.minOf { p ->
+                        PlanGeometry.distanceMeters(NormalizedPoint(xNorm, yNorm), p.position, layout.widthMeters, layout.heightMeters)
+                    }
+                    // Do not color large unsurveyed regions as if they had real readings.
+                    if (nearestMeters > 3.5f) continue
+                }
+                val estimatedRssi = if (trustworthyPoints.isNotEmpty()) {
+                    interpolateFromSurvey(xNorm, yNorm, trustworthyPoints, if (isMeasuredPlan) null else routerPosition)
                 } else if (routerPosition != null) {
                     estimateFromRouter(xNorm, yNorm, routerPosition, layout)
                 } else {

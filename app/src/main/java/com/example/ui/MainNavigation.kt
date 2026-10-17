@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiFind
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -65,6 +66,7 @@ import com.example.ui.screens.ChannelGraphScreen
 import com.example.ui.screens.HeatmapScreen
 import com.example.ui.screens.NetworkListScreen
 import com.example.ui.screens.OptimizerScreen
+import com.example.ui.screens.RadioOperationsScreen
 import com.example.ui.theme.CyberBackground
 import com.example.ui.theme.CyberOutline
 import com.example.ui.theme.CyberSurface
@@ -76,7 +78,8 @@ enum class NavTab(val title: String, val icon: ImageVector) {
     NETWORKS("Networks", Icons.Default.WifiFind),
     HEATMAP("Heatmap", Icons.Default.Layers),
     CHANNELS("Channels", Icons.Default.GraphicEq),
-    OPTIMIZER("Optimizer", Icons.Default.AutoFixHigh)
+    OPTIMIZER("Optimizer", Icons.Default.AutoFixHigh),
+    AUDIT("Audit", Icons.Default.Analytics)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -245,6 +248,7 @@ fun MainAppScreen(
                 NavTab.HEATMAP -> HeatmapScreen(viewModel = viewModel)
                 NavTab.CHANNELS -> ChannelGraphScreen(viewModel = viewModel)
                 NavTab.OPTIMIZER -> OptimizerScreen(viewModel = viewModel)
+                NavTab.AUDIT -> RadioOperationsScreen(viewModel = viewModel, onOpenHeatmap = { currentTab = NavTab.HEATMAP })
             }
         }
     }

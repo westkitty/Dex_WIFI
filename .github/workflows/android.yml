@@ -50,3 +50,42 @@ jobs:
           retention-days: 14
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
+
+  emulator-smoke:
+    name: Emulator install + launch (API ${{ matrix.api }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [35, 36]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Dex_WIFI-debug-apk
+          path: ci-apk
+      - name: Enable emulator virtualization
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and render Wi-Fi UI on Android 16 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash ci/smoke-launch.sh
+      - name: Upload runtime crash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dex_WIFI-emulator-smoke-evidence-api-${{ matrix.api }}
+          path: smoke-evidence/
+          retention-days: 7
+          if-no-files-found: warn

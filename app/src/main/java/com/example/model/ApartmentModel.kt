@@ -32,7 +32,9 @@ data class ApartmentLayout(
     val widthMeters: Float = 12f,
     val heightMeters: Float = 9f,
     val rooms: List<RoomZone>,
-    val defaultRouterPosition: NormalizedPoint = NormalizedPoint(0.25f, 0.45f)
+    val defaultRouterPosition: NormalizedPoint = NormalizedPoint(0.25f, 0.45f),
+    val outline: List<NormalizedPoint> = emptyList(),
+    val referenceCalibrated: Boolean = false
 )
 
 data class SurveyPoint(
