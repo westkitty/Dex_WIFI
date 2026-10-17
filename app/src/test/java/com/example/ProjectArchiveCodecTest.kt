@@ -3,11 +3,14 @@ package com.example
 import com.example.backup.ProjectArchiveCodec
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
+@RunWith(RobolectricTestRunner::class)
 class ProjectArchiveCodecTest {
     @Test fun archiveRoundTripPreservesRawPlanAndRows() {
         val output = ByteArrayOutputStream()
