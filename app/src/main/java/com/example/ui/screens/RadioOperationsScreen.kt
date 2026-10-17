@@ -51,7 +51,7 @@ fun RadioOperationsScreen(
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             items(listOf("audit" to "Radio inventory",
-                "coach" to "Survey Coach", "doctor" to "Connection Doctor")) { (key, label) ->
+                "coach" to "Survey Coach", "doctor" to "Connection Doctor", "backup" to "Data Safety")) { (key, label) ->
                 FilterChip(selected = page == key, onClick = { page = key },
                     label = { Text(label) }, modifier = Modifier.testTag("audit_mode_" + key))
             }
@@ -60,6 +60,7 @@ fun RadioOperationsScreen(
             when (page) {
                 "coach" -> SurveyCoachScreen(viewModel, onOpenHeatmap)
                 "doctor" -> ConnectionDoctorScreen(viewModel)
+                "backup" -> BackupRecoveryScreen(viewModel)
                 else -> RadioAuditDetail(viewModel)
             }
         }
