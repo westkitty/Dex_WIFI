@@ -13,7 +13,7 @@ android {
         applicationId = "com.example"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,7 +34,15 @@ android {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
         }
-        // Default Android debug key; cannot update builds signed with another key.
+        getByName("debug") {
+            // Recovery preview: a different app ID prevents overwriting installations
+            // that were signed with a different ephemeral GitHub Actions debug key.
+            // The existing com.example app and its private data remain untouched.
+            applicationIdSuffix = ".floorplan"
+            versionNameSuffix = "-preview"
+        }
+        // IMPORTANT: CI debug keys are ephemeral. Do not promise in-place updates
+        // until a private, persistent signing key is provisioned for release builds.
     }
 
     compileOptions {

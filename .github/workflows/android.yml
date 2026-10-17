@@ -50,3 +50,38 @@ jobs:
           retention-days: 14
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
+
+  emulator-smoke:
+    name: Emulator install + launch
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Dex_WIFI-debug-apk
+          path: ci-apk
+      - name: Enable emulator virtualization
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and launch actual APK in Android 35 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash ci/smoke-launch.sh
+      - name: Upload runtime crash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dex_WIFI-emulator-smoke-evidence
+          path: smoke-evidence/
+          retention-days: 7
+          if-no-files-found: warn
