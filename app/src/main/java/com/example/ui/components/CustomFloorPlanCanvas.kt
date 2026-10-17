@@ -1,6 +1,5 @@
 package com.example.ui.components
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -35,7 +34,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -75,14 +73,19 @@ fun CustomFloorPlanCanvas(
     onDeleteSurveyPoint: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val photo = remember(photoFile?.absolutePath) {
-        runCatching { photoFile?.let { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() } }.getOrNull()
-    }
-    val aspect = (if (photo != null) document.imageAspect else
+    val photo = rememberFloorPlanPhoto(photoFile)
+    val aspect = (if (document.photoFile != null) document.imageAspect else
         document.widthMeters / document.heightMeters).coerceIn(.35f, 4f)
     var selectedPin by remember(surveyPoints) { mutableStateOf<SurveyPoint?>(null) }
     val measuredSsid = surveyPoints.maxByOrNull { it.timestamp }?.primarySsid
     val visibleSamples = surveyPoints.filter { it.primarySsid == measuredSsid }
+    val labelPaint = remember { android.graphics.Paint().apply {
+        color = android.graphics.Color.WHITE
+        textSize = 26f
+        isAntiAlias = true
+        isFakeBoldText = true
+        setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
+    } }
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -141,13 +144,6 @@ fun CustomFloorPlanCanvas(
                                     size = Size(stepX + 1f, stepY + 1f)
                                 )
                             }
-                        }
-                        val labelPaint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.WHITE
-                            textSize = 26f
-                            isAntiAlias = true
-                            isFakeBoldText = true
-                            setShadowLayer(3f, 1f, 1f, android.graphics.Color.BLACK)
                         }
                         document.rooms.forEach { room ->
                             val x = room.leftNorm * w

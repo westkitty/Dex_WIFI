@@ -98,3 +98,12 @@ object PlanGeometry {
                 point.y in r.topNorm..(r.topNorm + r.heightNorm)
         }?.name ?: "Unlabelled area"
 }
+
+/** Commits one continuous pen gesture with at most one immutable list copy. */
+object SketchStrokeBatch {
+    fun append(existing: List<PlanSegment>, pending: List<PlanSegment>, limit: Int = 2500): List<PlanSegment> {
+        val available = (limit - existing.size).coerceAtLeast(0)
+        if (available == 0 || pending.isEmpty()) return existing
+        return existing + pending.take(available)
+    }
+}

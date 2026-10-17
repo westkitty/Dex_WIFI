@@ -23,12 +23,15 @@ import com.example.service.HeatmapInterpolator
 import com.example.service.WifiAnalyzerEngine
 import com.example.service.WifiScannerService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -63,6 +66,7 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
 
     // Real-time signal fluctuation history for the live RSSI waveform
     private val _signalHistory = MutableStateFlow<List<Int>>(List(30) { -50 })
+    private var signalHistoryJob: Job? = null
     val signalHistory: StateFlow<List<Int>> = _signalHistory.asStateFlow()
 
     // DB survey points for current layout
@@ -95,13 +99,18 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
         WifiAnalyzerEngine.generateOptimizationSuggestions(nets, conn, surveys, layout)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Heatmap Grid
+    // A custom survey's interpolation does not depend on router-marker position.
+    // Dispatch grid generation off the UI thread, and skip redundant router drags.
     val heatmapGrid: StateFlow<List<HeatmapCell>> = combine(
         currentLayout,
         surveyPoints,
         routerPosition
     ) { layout, surveys, router ->
-        HeatmapInterpolator.computeHeatmapGrid(layout, surveys, router)
+        Triple(layout, surveys, if (layout.id == FloorPlanDocument.LAYOUT_ID) null else router)
+    }.distinctUntilChanged().map { (layout, surveys, router) ->
+        withContext(Dispatchers.Default) {
+            HeatmapInterpolator.computeHeatmapGrid(layout, surveys, router)
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
@@ -115,16 +124,25 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Signal history ticker
-        viewModelScope.launch(Dispatchers.Default) {
+        // No silent fake survey data: demonstrations require explicit user action.
+    }
+
+    fun startForegroundScanning() {
+        scannerService.startForegroundScanning()
+        if (signalHistoryJob?.isActive == true) return
+        signalHistoryJob = viewModelScope.launch(Dispatchers.Default) {
             while (isActive) {
                 val currentRssi = connectedNetwork.value?.rssi ?: networks.value.firstOrNull()?.rssi ?: -70
                 _signalHistory.value = (_signalHistory.value.drop(1) + currentRssi)
                 delay(1000)
             }
         }
+    }
 
-        // No silent fake survey data: demonstrations require explicit user action.
+    fun stopForegroundScanning() {
+        scannerService.stopForegroundScanning()
+        signalHistoryJob?.cancel()
+        signalHistoryJob = null
     }
 
     fun selectBand(band: WifiBand) {
@@ -241,7 +259,8 @@ class WifiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        super.onCleared()
+        stopForegroundScanning()
         scannerService.cleanup()
+        super.onCleared()
     }
 }

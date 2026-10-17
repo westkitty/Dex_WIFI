@@ -17,6 +17,16 @@ class MainActivity : ComponentActivity() {
 
     private val wifiViewModel: WifiViewModel by viewModels()
 
+    override fun onStart() {
+        super.onStart()
+        wifiViewModel.startForegroundScanning()
+    }
+
+    override fun onStop() {
+        wifiViewModel.stopForegroundScanning()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

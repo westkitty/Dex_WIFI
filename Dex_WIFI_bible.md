@@ -87,3 +87,10 @@ Prioritize for subsequent bounded, testable iterations:
 - Binary from verified `ae515...` build exposed before any Google Drive archival as requested.
 - Documentation follow-up commit: to be reported separately.
 - ADB install: blocked by device offline, no claim of deployment; ask user to bring Desktop Commander Remote or DEX//REACH online, then re-identify node, `adb devices -l` and verify package version/signature before installation.
+
+## 2026-10-17 — Battery, photo, and drawing performance follow-up (candidate)
+- Parent PR #2 repair baseline: `dfdbbd641a6b182e24381b77f78dd1cad5b234bd`; CI #22 passed API 35/36 emulator tests. Tablet installation BLOCKED: only ~508 MB free; preserve existing data and HOLD merge.
+- Code-established baseline: scanner and simulated updates loop every 2.5 seconds while ViewModel survives (nominal 24 iterations/minute even while backgrounded); graph ticker updates once per second (60/minute); two screens synchronously decode a blueprint bitmap during Compose composition; pen repeatedly copies the immutable segment list on each accepted drag step; heatmap interpolation currently runs in the UI flow producer and custom router drags retrigger it despite ignoring router position.
+- This pass targets lifecycle-activated scanning/ticker, background decoding with bounded bitmap resolution, one-copy stroke batching with live preview, and off-main heatmap computation with custom-router deduplication. These effects are inferred from code until the new CI and real-device checks pass.
+- Added scanner pause/resume and sketch equivalence/photo policy regression coverage plus a bounded same-JVM list-copy microbenchmark. Microbenchmark is NOT a stylus frame-time measurement.
+- Commit/push/CI outcome and Android physical acceptance are separate; do not promote source edits into proven battery/FPS gains without matched profiling.

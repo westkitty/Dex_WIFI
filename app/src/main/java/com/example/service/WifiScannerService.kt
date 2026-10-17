@@ -51,6 +51,7 @@ class WifiScannerService(
 
     private val publicationLock = Any()
     @Volatile private var disposed = false
+    @Volatile private var foregroundActive = false
     private var pollingJob: Job? = null
     private var pendingSimulationJob: Job? = null
     private var scanReceiverRegistered = false
@@ -75,7 +76,29 @@ class WifiScannerService(
         if (!hasHardwareWifi() || !checkLocationPermissionGranted()) {
             _isSimulatedMode.value = true
         }
+        // No coroutine escapes from a partially constructed object. Activity.onStart
+        // explicitly begins foreground scanning and onStop cancels it.
+    }
+
+    fun startForegroundScanning() {
+        synchronized(publicationLock) {
+            if (disposed || foregroundActive) return
+            foregroundActive = true
+        }
+        checkPermissions()
         startScanLoop()
+    }
+
+    fun stopForegroundScanning() {
+        synchronized(publicationLock) {
+            foregroundActive = false
+            pollingJob?.cancel()
+            pollingJob = null
+            pendingSimulationJob?.cancel()
+            pendingSimulationJob = null
+            _isScanning.value = false
+        }
+        unregisterReceiver()
     }
 
     fun setSimulatedMode(enabled: Boolean) {
@@ -92,7 +115,7 @@ class WifiScannerService(
 
     /** An atomic real-radio snapshot; simulated connected data can never be recorded. */
     fun realConnectedSnapshotOrNull(): WifiNetwork? = synchronized(publicationLock) {
-        if (disposed || _isSimulatedMode.value || !_hasLocationPermission.value) null
+        if (disposed || !foregroundActive || _isSimulatedMode.value || !_hasLocationPermission.value) null
         else _connectedNetwork.value?.takeIf {
             it.isConnected && it.ssid.isNotBlank() && it.rssi in -100..-1 && it.frequency > 0
         }
@@ -142,7 +165,7 @@ class WifiScannerService(
 
     fun triggerScan() {
         synchronized(publicationLock) {
-            if (disposed) return
+            if (disposed || !foregroundActive) return
             _isScanning.value = true
         }
         checkPermissions()
@@ -193,7 +216,7 @@ class WifiScannerService(
     private fun startScanLoop() {
         pollingJob?.cancel()
         pollingJob = scope.launch(scanDispatcher) {
-            while (isActive && !disposed) {
+            while (isActive && !disposed && foregroundActive) {
                 if (_isSimulatedMode.value) {
                     updateSimulatedNetworks()
                 } else {
@@ -205,7 +228,7 @@ class WifiScannerService(
     }
 
     private fun refreshRealScanResults() {
-        if (disposed || _isSimulatedMode.value || wifiManager == null) return
+        if (disposed || !foregroundActive || _isSimulatedMode.value || wifiManager == null) return
 
         try {
             val results: List<ScanResult> = wifiManager.scanResults ?: emptyList()
@@ -253,13 +276,13 @@ class WifiScannerService(
 
             // Reject stale results delivered after a mode switch or teardown.
             synchronized(publicationLock) {
-                if (disposed || _isSimulatedMode.value) return
+                if (disposed || !foregroundActive || _isSimulatedMode.value) return
                 _networks.value = mapped
                 _connectedNetwork.value = connected
             }
         } catch (e: SecurityException) {
             synchronized(publicationLock) {
-                if (disposed) return
+                if (disposed || !foregroundActive) return
                 _hasLocationPermission.value = false
                 _networks.value = emptyList()
                 _connectedNetwork.value = null
@@ -304,7 +327,7 @@ class WifiScannerService(
 
     // Apartment simulated Wi-Fi environment
     private fun updateSimulatedNetworks() {
-        if (disposed || !_isSimulatedMode.value) return
+        if (disposed || !foregroundActive || !_isSimulatedMode.value) return
         // Apply realistic small RF fluctuations (+/- 1-2 dBm)
         val updated = baseSimulatedNetworks.map { net ->
             val jitter = Random.nextInt(-2, 3)
@@ -316,7 +339,7 @@ class WifiScannerService(
         }.sortedByDescending { it.rssi }
 
         synchronized(publicationLock) {
-            if (disposed || !_isSimulatedMode.value) return
+            if (disposed || !foregroundActive || !_isSimulatedMode.value) return
             _networks.value = updated
             _connectedNetwork.value = updated.find { it.isConnected }
         }
@@ -423,10 +446,7 @@ class WifiScannerService(
     fun cleanup() {
         synchronized(publicationLock) {
             disposed = true
-            _isScanning.value = false
-            pollingJob?.cancel()
-            pendingSimulationJob?.cancel()
         }
-        unregisterReceiver()
+        stopForegroundScanning()
     }
 }

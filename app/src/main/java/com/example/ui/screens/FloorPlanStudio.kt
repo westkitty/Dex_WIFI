@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import android.net.Uri
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -52,7 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -69,9 +67,11 @@ import com.example.model.NormalizedPoint
 import com.example.model.PlanElementType
 import com.example.model.PlanGeometry
 import com.example.model.PlanSegment
+import com.example.model.SketchStrokeBatch
 import com.example.model.RoomType
 import com.example.model.RoomZone
 import com.example.ui.WifiViewModel
+import com.example.ui.components.rememberFloorPlanPhoto
 import com.example.ui.theme.CyberBackground
 import com.example.ui.theme.CyberOutline
 import com.example.ui.theme.CyberSurface
@@ -117,6 +117,17 @@ fun FloorPlanStudio(
     var errorText by remember { mutableStateOf<String?>(null) }
     var awaitingPhoto by remember { mutableStateOf<Uri?>(null) }
     val history = remember { mutableStateListOf<FloorPlanDocument>() }
+    // Mutable preview grows in O(1) per segment; the immutable document is
+    // copied once at the end of a stroke instead of on every pointer move.
+    val activeStroke = remember { mutableStateListOf<PlanSegment>() }
+
+    fun finishSketchStroke() {
+        if (activeStroke.isNotEmpty()) {
+            draft = draft.copy(segments = SketchStrokeBatch.append(draft.segments, activeStroke))
+            activeStroke.clear()
+        }
+        dragLast = null
+    }
 
     fun update(next: FloorPlanDocument) {
         if (next == draft) return
@@ -228,13 +239,15 @@ fun FloorPlanStudio(
         }
     }
 
-    val photo = remember(draft.photoFile) {
-        viewModel.floorPlanPhotoFile(draft.photoFile)?.let { file ->
-            runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull()
-        }
-    }
-    val aspect = (if (photo != null) draft.imageAspect else
+    val photo = rememberFloorPlanPhoto(viewModel.floorPlanPhotoFile(draft.photoFile))
+    val aspect = (if (draft.photoFile != null) draft.imageAspect else
         (draft.widthMeters / draft.heightMeters)).coerceIn(.35f, 4f)
+    val textPaint = remember { android.graphics.Paint().apply {
+        color = android.graphics.Color.WHITE
+        textSize = 28f
+        isAntiAlias = true
+        isFakeBoldText = true
+    } }
     val lineColors = mapOf(
         PlanElementType.WALL to NeonCyan,
         PlanElementType.DOOR to NeonEmerald,
@@ -370,6 +383,7 @@ fun FloorPlanStudio(
                         if (tool == PlanTool.SKETCH) {
                             detectDragGestures(
                                 onDragStart = { pos ->
+                                    activeStroke.clear()
                                     if (history.size >= 35) history.removeAt(0)
                                     history.add(draft)
                                     dragLast = PlanGeometry.clamp(NormalizedPoint(
@@ -384,15 +398,14 @@ fun FloorPlanStudio(
                                     val from = dragLast
                                     if (from != null &&
                                         hypot(to.x - from.x, to.y - from.y) > .012f &&
-                                        draft.segments.size < 2500) {
-                                        draft = draft.copy(segments = draft.segments +
-                                            PlanSegment(from, to, PlanElementType.WALL))
+                                        draft.segments.size + activeStroke.size < 2500) {
+                                        activeStroke.add(PlanSegment(from, to, PlanElementType.WALL))
                                         dragLast = to
                                     }
                                     change.consume()
                                 },
-                                onDragEnd = { dragLast = null },
-                                onDragCancel = { dragLast = null }
+                                onDragEnd = { finishSketchStroke() },
+                                onDragCancel = { finishSketchStroke() }
                             )
                         }
                     }
@@ -419,12 +432,6 @@ fun FloorPlanStudio(
                             drawCircle(NeonCyan, 6f, Offset(p.x * w, p.y * h))
                         }
                     }
-                    val textPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.WHITE
-                        textSize = 28f
-                        isAntiAlias = true
-                        isFakeBoldText = true
-                    }
                     draft.rooms.forEach { room ->
                         val left = room.leftNorm * w
                         val top = room.topNorm * h
@@ -443,6 +450,10 @@ fun FloorPlanStudio(
                             Offset(s.start.x * w, s.start.y * h),
                             Offset(s.end.x * w, s.end.y * h),
                             strokeWidth = if (s.kind == PlanElementType.WALL) 6f else 9f)
+                    }
+                    activeStroke.forEach { s ->
+                        drawLine(NeonCyan, Offset(s.start.x * w, s.start.y * h),
+                            Offset(s.end.x * w, s.end.y * h), strokeWidth = 6f)
                     }
                     anchor?.let { drawCircle(NeonAmber, 9f, Offset(it.x * w, it.y * h)) }
                     if (draft.scaleVerified) {
